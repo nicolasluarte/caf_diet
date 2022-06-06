@@ -1,0 +1,173 @@
+---
+title: "caf_diet"
+author: "Yanireth Jimenez"
+date: '2022-06-06'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load libraries
+```{r}
+pacman::p_load(
+  ggplot2,
+  tidyverse,
+  googlesheets4
+)
+```
+
+# Load data
+
+```{r}
+# 2h daily exposure to cafeteria diet
+caf_diet_intake_raw <- read_sheet("https://docs.google.com/spreadsheets/d/1yN0byHvCX7_lhpqhMryK8NE8271o19uOHm12PpkQFE0/edit#gid=96738361")
+
+# 22 hour chow (standard diet) intake
+chow_diet_intake_raw <- read_sheet("https://docs.google.com/spreadsheets/d/1LhdjUG9xIxbZ3kmRWPWzSAUHyMce2JFTy2D1mtAGqCo/edit#gid=0")
+
+# cafeteria diet macronutrient information
+macronutrients_info <- read_sheet("https://docs.google.com/spreadsheets/u/1/d/1a7jy9vIBOiPlJYsKFF4vUyEtlqqNtbe9E5ALUA1d3l8/edit?usp=drive_web&ouid=104225426026972857358")
+```
+
+# Data preproc
+
+```{r}
+# daily cafeteria dieta intake
+caf_diet_intake <- caf_diet_intake_raw %>% 
+  # fix hour in and hour out format
+  mutate(
+    hour_in = hms::as_hms(hour_in),
+    hour_out = hms::as_hms(hour_out),
+    # corrected intake
+    criollitas_intake = criollitas_in_gr - (criollitas_out_gr - criollitas_sp_gr),
+    trencito_intake = trencito_in_gr - (trencito_out_gr - trencito_sp_gr),
+    criollitas_intake = criollitas_in_gr - (criollitas_out_gr - criollitas_sp_gr),
+    papas_intake = papas_in_gr - (papas_out_gr - papas_sp_gr),
+    chow_intake = chow_in_gr - (chow_out_gr - chow_sp_gr)
+  ) %>% 
+  select(ID:hour_out, criollitas_intake:chow_intake) %>% 
+  pivot_longer(
+    cols = contains("intake"),
+    names_to = "food_name",
+    values_to = "corrected_intake_gr"
+  ) %>% 
+  mutate(
+    food_name = str_extract(food_name, "[^_]*")
+  )
+
+# macronutrient information
+macronutrients_info_long <- macronutrients_info %>% 
+  pivot_longer(
+    cols = !macronutriente,
+    names_to = "food_name",
+    values_to = "kcal_per_gr"
+  )
+
+# 22 hour chow intake
+chow_diet_intake <- chow_diet_intake_raw %>% 
+  mutate(
+    corrected_intake_gr = chow_22_in_gr - (chow_22_out_gr - chow_22_sp_gr),
+    hour_in = hms::as_hms(hour_in),
+    hour_out = hms::as_hms(hour_out)
+  ) %>% 
+  select(ID:hour_out, corrected_intake_gr) %>% 
+  mutate(food_name = "chow", time = "22_hr")
+```
+
+## merge tables
+```{r}
+# this adds macro nutrients to each corrected food intake
+caf_diet_intake_macros <- caf_diet_intake %>% 
+  left_join(
+    macronutrients_info_long,
+    by = c("food_name")
+  ) %>% 
+  mutate(time = "2_hr") %>% 
+# next we compute the real kcal eaten for each food
+  mutate(
+    kcal_intake = kcal_per_gr * corrected_intake_gr
+  )
+
+chow_22_intake_macros <- chow_diet_intake %>% 
+  left_join(
+    macronutrients_info_long,
+    by = c("food_name")
+  ) %>% 
+  mutate(
+    kcal_intake = kcal_per_gr * corrected_intake_gr
+  )
+
+caf_diet_intake_macros <- bind_rows(caf_diet_intake_macros, chow_22_intake_macros)
+```
+
+## summary tables
+```{r}
+# this tables considers total chow intake
+caf_chow_kcal <- caf_diet_intake_macros %>% 
+  group_by(
+    across(c(-time))
+  ) %>% 
+  summarise(
+    kcal_intake = sum(kcal_intake)
+  )
+
+# intake by macro nutrient in kcal
+macro_intake_kcal <- caf_diet_intake_macros %>% 
+  group_by(
+    ID,
+    session,
+    macronutriente,
+    exp_tag
+  ) %>% 
+  summarise(
+    total_intake_kcal = sum(kcal_intake)
+  ) %>% 
+  # at this point we have the total intake per session
+  # now we get the mean and std error
+  ungroup() %>% 
+  group_by(
+    session,
+    macronutriente,
+    exp_tag
+  ) %>% 
+  summarise(
+    mean_total_intake_kcal = mean(total_intake_kcal),
+    err = sd(total_intake_kcal) / sqrt(n())
+  )
+
+
+```
+
+
+# Plots
+
+## intake in the 2 hour cafeteria diet intake
+
+x axis = experimental sessions
+y axis = kcal or grams
+
+```{r}
+# macro intake in kcal
+macro_intake_kcal %>% 
+  filter(
+    macronutriente == "total"
+  ) %>% 
+  ggplot(aes(
+    session,
+    mean_total_intake_kcal,
+    color = exp_tag,
+    ymin = mean_total_intake_kcal - err,
+    ymax = mean_total_intake_kcal + err
+  )) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar()
+```
+
+
+## percent intake in 24 hours of cafeteria dieta vs chow
+
+x axis = experimental sessions
+y axis = % of intake in kcal caf vs chow
