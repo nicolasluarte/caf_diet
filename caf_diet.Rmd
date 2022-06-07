@@ -111,10 +111,55 @@ caf_diet_intake_macros <- bind_rows(caf_diet_intake_macros, chow_22_intake_macro
 # normal chow + chow consumed during cafeteria diet
 caf_chow_kcal <- caf_diet_intake_macros %>% 
   group_by(
-    across(c(-time))
+    ID,
+    session,
+    food_name,
+    macronutriente,
+    exp_tag
   ) %>% 
   summarise(
     kcal_intake = sum(kcal_intake)
+  )
+
+# normal + chow consumed during cafeteria diet vs caf diet in % of daily intake kcal
+caf_chow_kcal_daily <- caf_chow_kcal %>% 
+  group_by(
+    ID,
+    session,
+    macronutriente,
+    exp_tag
+  ) %>% 
+  summarise(
+    total_intake_sum_kcal = sum(kcal_intake)
+  ) %>% 
+  right_join(
+    caf_chow_kcal,
+    by = c("ID", "session", "exp_tag", "macronutriente")
+  ) %>% 
+  mutate(
+    percent_of_daily_intake = (kcal_intake / total_intake_sum_kcal) * 100,
+    type_of_food = if_else(food_name == "chow", "chow", "caf")
+  ) %>% 
+  group_by(
+    ID,
+    session,
+    macronutriente,
+    exp_tag,
+    type_of_food
+  ) %>% 
+  summarise(
+    percent_of_daily_intake_total = sum(percent_of_daily_intake)
+  ) %>% 
+  ungroup() %>% 
+  group_by(
+    session,
+    macronutriente,
+    exp_tag,
+    type_of_food
+  ) %>% 
+  summarise(
+    percent_of_daily_intake_total_group = mean(percent_of_daily_intake_total),
+    err = sd(percent_of_daily_intake_total) / sqrt(n())
   )
 
 # intake by macro nutrient in kcal
@@ -159,7 +204,8 @@ macro_intake_kcal %>%
     macronutriente == "total"
   ) %>% 
   ggplot(aes(
-    session,
+    as.factor(session),
+    group = exp_tag,
     mean_total_intake_kcal,
     color = exp_tag,
     ymin = mean_total_intake_kcal - err,
@@ -179,3 +225,21 @@ macro_intake_kcal %>%
 
 x axis = experimental sessions
 y axis = % of intake in kcal caf vs chow
+```{r}
+caf_chow_kcal_daily %>% 
+  filter(
+    macronutriente == "total"
+  ) %>% 
+  ggplot(aes(
+    session,
+    percent_of_daily_intake_total_group,
+    ymin = percent_of_daily_intake_total_group - err,
+    ymax = percent_of_daily_intake_total_group + err,
+    color = type_of_food
+  )) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar() +
+  facet_wrap(~exp_tag)
+```
+
