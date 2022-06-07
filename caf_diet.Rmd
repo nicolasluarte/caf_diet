@@ -14,7 +14,8 @@ knitr::opts_chunk$set(echo = TRUE)
 pacman::p_load(
   ggplot2,
   tidyverse,
-  googlesheets4
+  googlesheets4,
+  ggpubr
 )
 ```
 
@@ -99,12 +100,15 @@ chow_22_intake_macros <- chow_diet_intake %>%
     kcal_intake = kcal_per_gr * corrected_intake_gr
   )
 
+# we bind both data sets to add up normal chow intake to the caf diet
+# chow intake
 caf_diet_intake_macros <- bind_rows(caf_diet_intake_macros, chow_22_intake_macros)
 ```
 
 ## summary tables
 ```{r}
 # this tables considers total chow intake
+# normal chow + chow consumed during cafeteria diet
 caf_chow_kcal <- caf_diet_intake_macros %>% 
   group_by(
     across(c(-time))
@@ -163,7 +167,11 @@ macro_intake_kcal %>%
   )) +
   geom_point() +
   geom_line() +
-  geom_errorbar()
+  geom_errorbar() +
+  theme_pubr() +
+  labs(color = "Experimental condition") +
+  ylab("Mean intake (kcal)") +
+  xlab("Sessions")
 ```
 
 
