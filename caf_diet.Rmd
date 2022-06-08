@@ -42,13 +42,17 @@ caf_diet_intake <- caf_diet_intake_raw %>%
     hour_in = hms::as_hms(hour_in),
     hour_out = hms::as_hms(hour_out),
     # corrected intake
-    criollitas_intake = criollitas_in_gr - (criollitas_out_gr - criollitas_sp_gr),
-    trencito_intake = trencito_in_gr - (trencito_out_gr - trencito_sp_gr),
-    criollitas_intake = criollitas_in_gr - (criollitas_out_gr - criollitas_sp_gr),
-    papas_intake = papas_in_gr - (papas_out_gr - papas_sp_gr),
-    chow_intake = chow_in_gr - (chow_out_gr - chow_sp_gr)
+    # criollitas
+    criollitas_intake = criollitas_in_gr - (criollitas_out_gr + criollitas_sp_gr),
+    # trencito
+    trencito_intake = trencito_in_gr - (trencito_out_gr + trencito_sp_gr),
+    # cheetos
+    cheetos_intake = cheetos_in_gr - (cheetos_out_gr + cheetos_sp_gr),
+    # papas
+    papas_intake = papas_in_gr - (papas_out_gr + papas_sp_gr),
+    # chow
+    chow_intake = chow_in_gr - (chow_out_gr + chow_sp_gr)
   ) %>% 
-  select(ID:hour_out, criollitas_intake:chow_intake) %>% 
   pivot_longer(
     cols = contains("intake"),
     names_to = "food_name",
@@ -56,6 +60,89 @@ caf_diet_intake <- caf_diet_intake_raw %>%
   ) %>% 
   mutate(
     food_name = str_extract(food_name, "[^_]*")
+  )
+
+# isolate caja control to obtain percentage increase/decrease of food
+# without a mice
+caja_control <- caf_diet_intake_raw %>% 
+  filter(
+    exp_tag == "caja_control"
+  ) %>% 
+  mutate(
+    # fix hour format
+    hour_in = hms::as_hms(hour_in),
+    hour_out = hms::as_hms(hour_out),
+    # criollitas
+    criollitas_percent_diff = ((criollitas_out_gr + criollitas_sp_gr) - criollitas_in_gr) /
+      (((criollitas_in_gr) + (criollitas_out_gr + criollitas_sp_gr)) / 2),
+    # cheetos
+    cheetos_percent_diff = ((cheetos_out_gr + cheetos_sp_gr) - cheetos_in_gr) /
+      (((cheetos_in_gr) + (cheetos_out_gr + cheetos_sp_gr)) / 2),
+    # trencito
+    trencito_percent_diff = ((trencito_out_gr + trencito_sp_gr) - trencito_in_gr) /
+      (((trencito_in_gr) + (trencito_out_gr + trencito_sp_gr)) / 2),
+    # papas
+    papas_percent_diff = ((papas_out_gr + papas_sp_gr) - papas_in_gr) /
+      (((papas_in_gr) + (papas_out_gr + papas_sp_gr)) / 2),
+    # chow
+    chow_percent_diff = ((chow_out_gr + chow_sp_gr) - chow_in_gr) /
+      (((chow_in_gr) + (chow_out_gr + chow_sp_gr)) / 2)
+  ) %>% 
+  select(ID:hour_out, criollitas_percent_diff:chow_percent_diff) %>% 
+  pivot_longer(
+    cols = contains("percent_diff"),
+    names_to = "food_name",
+    values_to = "control_percent_diff"
+  ) %>% 
+  mutate(
+    food_name = str_extract(food_name, "[^_]*")
+  )
+
+# add back caja control percent difference per food into caf_diet_intake
+caf_diet_intake_cr <- caf_diet_intake %>% 
+  left_join(
+    caja_control %>% select(
+      date,
+      food_name,
+      control_percent_diff
+    ),
+    by = c(
+      "date",
+      "food_name"
+    )
+  ) %>% 
+  group_by(
+    date,
+    food_name,
+    ID
+  ) %>% 
+  summarise(
+    # corrected intake by spillage AND control cage
+    # criollitas
+    criollitas_intake_cr = (criollitas_in_gr + (criollitas_in_gr * control_percent_diff))
+    - (criollitas_out_gr + criollitas_sp_gr),
+    # trencito
+    trencito_intake_cr = (trencito_in_gr + (trencito_in_gr * control_percent_diff))
+    - (trencito_out_gr + trencito_sp_gr),
+    # papas
+    papas_intake_cr = (papas_in_gr + (papas_in_gr * control_percent_diff))
+    - (papas_out_gr + papas_sp_gr),
+    # cheetos
+    cheetos_intake_cr = (cheetos_in_gr + (cheetos_in_gr * control_percent_diff))
+    - (cheetos_out_gr + cheetos_sp_gr),
+    # chow
+    chow_intake_cr = (chow_in_gr + (chow_in_gr * control_percent_diff))
+    - (chow_out_gr + chow_sp_gr)
+  ) %>% 
+    pivot_longer(
+    cols = contains("intake_cr"),
+    names_to = "food_name_cr",
+    values_to = "corrected_intake_gr_cr"
+  ) %>% 
+  mutate(
+    food_name = str_extract(food_name_cr, "[^_]*"),
+    # if its less than 0.01 this cannot be measured by the scale
+    corrected_intake_gr_cr = if_else(corrected_intake_gr_cr < 0.01, 0, corrected_intake_gr_cr)
   )
 
 # macronutrient information
@@ -69,18 +156,73 @@ macronutrients_info_long <- macronutrients_info %>%
 # 22 hour chow intake
 chow_diet_intake <- chow_diet_intake_raw %>% 
   mutate(
-    corrected_intake_gr = chow_22_in_gr - (chow_22_out_gr - chow_22_sp_gr),
+    corrected_intake_gr = chow_22_in_gr - (chow_22_out_gr + chow_22_sp_gr),
     hour_in = hms::as_hms(hour_in),
     hour_out = hms::as_hms(hour_out)
   ) %>% 
-  select(ID:hour_out, corrected_intake_gr) %>% 
   mutate(food_name = "chow", time = "22_hr")
+
+# TODO correct by percent difference
+chow_22_control <- chow_diet_intake_raw %>% 
+  filter(
+    exp_tag == "caja_control"
+  ) %>% 
+  mutate(
+    hour_in = hms::as_hms(hour_in),
+    hour_out = hms::as_hms(hour_out),
+    # percent diff in control chow
+    chow_22_percent_diff = ((chow_22_out_gr + chow_22_sp_gr) - chow_22_in_gr) /
+      (((chow_22_in_gr) + (chow_22_out_gr + chow_22_sp_gr)) / 2),
+  ) %>% 
+  select(ID:hour_out, chow_22_percent_diff) %>% 
+  pivot_longer(
+    cols = contains("percent_diff"),
+    names_to = "food_name",
+    values_to = "control_percent_diff"
+  ) %>% 
+  mutate(
+    food_name = str_extract(food_name, "[^_]*")
+  )
+
+chow_diet_intake_cr <- chow_diet_intake %>% 
+  left_join(
+    chow_22_control %>% select(
+      date,
+      food_name,
+      control_percent_diff
+    ),
+    by = c(
+      "date",
+      "food_name"
+    )
+  ) %>% 
+  group_by(
+    date,
+    food_name,
+    ID
+  ) %>% 
+  summarise(
+    # corrected intake by spillage AND control cage
+    # chow
+    chow_22_intake_cr = (chow_22_in_gr + (chow_22_in_gr * control_percent_diff))
+    - (chow_22_out_gr + chow_22_sp_gr)
+  ) %>% 
+    pivot_longer(
+    cols = contains("intake_cr"),
+    names_to = "food_name_cr",
+    values_to = "corrected_intake_gr_cr"
+  ) %>% 
+  mutate(
+    food_name = str_extract(food_name_cr, "[^_]*"),
+    # if its less than 0.01 this cannot be measured by the scale
+    corrected_intake_gr_cr = if_else(corrected_intake_gr_cr < 0.01, 0, corrected_intake_gr_cr)
+  )
 ```
 
 ## merge tables
 ```{r}
 # this adds macro nutrients to each corrected food intake
-caf_diet_intake_macros <- caf_diet_intake %>% 
+caf_diet_intake_macros <- caf_diet_intake_cr %>% 
   left_join(
     macronutrients_info_long,
     by = c("food_name")
@@ -88,16 +230,16 @@ caf_diet_intake_macros <- caf_diet_intake %>%
   mutate(time = "2_hr") %>% 
 # next we compute the real kcal eaten for each food
   mutate(
-    kcal_intake = kcal_per_gr * corrected_intake_gr
+    kcal_intake = kcal_per_gr * corrected_intake_gr_cr
   )
 
-chow_22_intake_macros <- chow_diet_intake %>% 
+chow_22_intake_macros <- chow_diet_intake_cr %>% 
   left_join(
     macronutrients_info_long,
     by = c("food_name")
   ) %>% 
   mutate(
-    kcal_intake = kcal_per_gr * corrected_intake_gr
+    kcal_intake = kcal_per_gr * corrected_intake_gr_cr
   )
 
 # we bind both data sets to add up normal chow intake to the caf diet
@@ -107,6 +249,19 @@ caf_diet_intake_macros <- bind_rows(caf_diet_intake_macros, chow_22_intake_macro
 
 ## summary tables
 ```{r}
+# add back session info
+session <- caf_diet_intake_raw %>% 
+  select(
+    ID,
+    date,
+    session,
+    exp_tag
+  )
+caf_diet_intake_macros <- caf_diet_intake_macros %>% 
+  left_join(
+    session,
+    by = c("ID", "date")
+  )
 # this tables considers total chow intake
 # normal chow + chow consumed during cafeteria diet
 caf_chow_kcal <- caf_diet_intake_macros %>% 
@@ -122,7 +277,7 @@ caf_chow_kcal <- caf_diet_intake_macros %>%
   )
 
 # normal + chow consumed during cafeteria diet vs caf diet in % of daily intake kcal
-caf_chow_kcal_daily <- caf_chow_kcal %>% 
+caf_chow_kcal_daily_ind <- caf_chow_kcal %>% 
   group_by(
     ID,
     session,
@@ -150,7 +305,9 @@ caf_chow_kcal_daily <- caf_chow_kcal %>%
   summarise(
     percent_of_daily_intake_total = sum(percent_of_daily_intake)
   ) %>% 
-  ungroup() %>% 
+  ungroup()
+# this is the same data but at a group level
+caf_chow_kcal_daily_group <- caf_chow_kcal_daily_ind %>% 
   group_by(
     session,
     macronutriente,
@@ -160,7 +317,8 @@ caf_chow_kcal_daily <- caf_chow_kcal %>%
   summarise(
     percent_of_daily_intake_total_group = mean(percent_of_daily_intake_total),
     err = sd(percent_of_daily_intake_total) / sqrt(n())
-  )
+  ) %>% 
+  ungroup()
 
 # intake by macro nutrient in kcal
 macro_intake_kcal <- caf_diet_intake_macros %>% 
@@ -201,7 +359,8 @@ y axis = kcal or grams
 # macro intake in kcal
 macro_intake_kcal %>% 
   filter(
-    macronutriente == "total"
+    macronutriente == "total",
+    exp_tag != "caja_control"
   ) %>% 
   ggplot(aes(
     as.factor(session),
