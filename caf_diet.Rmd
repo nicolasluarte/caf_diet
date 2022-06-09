@@ -15,7 +15,8 @@ pacman::p_load(
   ggplot2,
   tidyverse,
   googlesheets4,
-  ggpubr
+  ggpubr,
+  ggrepel
 )
 ```
 
@@ -321,7 +322,10 @@ caf_chow_kcal_daily_group <- caf_chow_kcal_daily_ind %>%
   ungroup()
 
 # intake by macro nutrient in kcal
-macro_intake_kcal <- caf_diet_intake_macros %>% 
+# this considers only the 2hr intake
+macro_intake_kcal_ind <- caf_diet_intake_macros %>%
+  drop_na() %>% 
+  filter(time == "2_hr") %>% 
   group_by(
     ID,
     session,
@@ -330,7 +334,8 @@ macro_intake_kcal <- caf_diet_intake_macros %>%
   ) %>% 
   summarise(
     total_intake_kcal = sum(kcal_intake)
-  ) %>% 
+  ) 
+macro_intake_kcal_group <- macro_intake_kcal_ind %>% 
   # at this point we have the total intake per session
   # now we get the mean and std error
   ungroup() %>% 
@@ -344,39 +349,130 @@ macro_intake_kcal <- caf_diet_intake_macros %>%
     err = sd(total_intake_kcal) / sqrt(n())
   )
 
-
+# intake in gr
+# intake by macro nutrient in kcal
+macro_intake_gr <- caf_diet_intake_macros %>% 
+  drop_na() %>% 
+  filter(time == "2_hr", macronutriente == "total") %>% 
+  group_by(
+    ID,
+    session,
+    exp_tag,
+    food_name
+  ) %>% 
+  summarise(
+    total_intake_gr = sum(corrected_intake_gr_cr)
+  ) %>% 
+  # at this point we have the total intake per session
+  # now we get the mean and std error
+  ungroup() %>% 
+  group_by(
+    session,
+    exp_tag,
+    food_name
+  ) %>% 
+  summarise(
+    mean_total_intake_gr = mean(total_intake_gr),
+    err = sd(total_intake_gr) / sqrt(n())
+  )
 ```
 
 
 # Plots
 
-## intake in the 2 hour cafeteria diet intake
+## 2 hours kcal
 
 x axis = experimental sessions
 y axis = kcal or grams
 
 ```{r}
 # macro intake in kcal
-macro_intake_kcal %>% 
+macro_intake_kcal_ind %>% 
+  mutate(ID = as.factor(ID)) %>% 
   filter(
     macronutriente == "total",
     exp_tag != "caja_control"
   ) %>% 
   ggplot(aes(
-    as.factor(session),
-    group = exp_tag,
-    mean_total_intake_kcal,
-    color = exp_tag,
-    ymin = mean_total_intake_kcal - err,
-    ymax = mean_total_intake_kcal + err
+    session,
+    total_intake_kcal,
+    group = ID,
+    color = exp_tag
   )) +
-  geom_point() +
-  geom_line() +
-  geom_errorbar() +
+  geom_line(alpha = 0.2) +
+  geom_point(alpha = 0.2) +
+  geom_label_repel(aes(label = ID)) +
+  geom_line(
+    data = macro_intake_kcal_group %>% 
+      filter(
+        macronutriente == "total",
+        exp_tag != "caja_control"
+      ),
+    inherit.aes = FALSE,
+    aes(
+      session,
+      mean_total_intake_kcal,
+      color = exp_tag
+    )
+  ) +
+  geom_point(
+      data = macro_intake_kcal_group %>% 
+      filter(
+        macronutriente == "total",
+        exp_tag != "caja_control"
+      ),
+    inherit.aes = FALSE,
+    aes(
+      session,
+      mean_total_intake_kcal,
+      color = exp_tag
+    )
+  ) +
+  geom_errorbar(
+      data = macro_intake_kcal_group %>% 
+      filter(
+        macronutriente == "total",
+        exp_tag != "caja_control"
+      ),
+    inherit.aes = FALSE,
+    aes(
+      session,
+      mean_total_intake_kcal,
+      color = exp_tag,
+      ymin = mean_total_intake_kcal - err,
+      ymax = mean_total_intake_kcal + err
+    ),
+    width = 0.01
+  ) +
   theme_pubr() +
   labs(color = "Experimental condition") +
   ylab("Mean intake (kcal)") +
   xlab("Sessions")
+```
+
+## 2 hours gr per food type
+```{r}
+# macro intake in gr
+macro_intake_gr %>% 
+  filter(
+    exp_tag != "caja_control"
+  ) %>% 
+  ggplot(aes(
+    as.factor(session),
+    group = food_name,
+    mean_total_intake_gr,
+    color = food_name,
+    ymin = mean_total_intake_gr - err,
+    ymax = mean_total_intake_gr + err
+  )) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(width = 0.1) +
+  theme_pubr() +
+  labs(color = "Experimental condition") +
+  ylab("Mean intake (gr)") +
+  xlab("Sessions") +
+  facet_wrap(~exp_tag)
 ```
 
 
@@ -385,9 +481,10 @@ macro_intake_kcal %>%
 x axis = experimental sessions
 y axis = % of intake in kcal caf vs chow
 ```{r}
-caf_chow_kcal_daily %>% 
+caf_chow_kcal_daily_group %>% 
   filter(
-    macronutriente == "total"
+    macronutriente == "total",
+    exp_tag != "caja_control"
   ) %>% 
   ggplot(aes(
     session,
@@ -401,4 +498,3 @@ caf_chow_kcal_daily %>%
   geom_errorbar() +
   facet_wrap(~exp_tag)
 ```
-
