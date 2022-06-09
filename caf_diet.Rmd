@@ -282,8 +282,8 @@ caf_chow_kcal_daily_ind <- caf_chow_kcal %>%
   group_by(
     ID,
     session,
-    macronutriente,
-    exp_tag
+    exp_tag,
+    macronutriente
   ) %>% 
   summarise(
     total_intake_sum_kcal = sum(kcal_intake)
@@ -309,9 +309,10 @@ caf_chow_kcal_daily_ind <- caf_chow_kcal %>%
   ungroup()
 # this is the same data but at a group level
 caf_chow_kcal_daily_group <- caf_chow_kcal_daily_ind %>% 
+  filter(exp_tag != "caja_control", macronutriente == "total") %>% 
+  drop_na() %>% 
   group_by(
     session,
-    macronutriente,
     exp_tag,
     type_of_food
   ) %>% 
@@ -482,19 +483,39 @@ x axis = experimental sessions
 y axis = % of intake in kcal caf vs chow
 ```{r}
 caf_chow_kcal_daily_group %>% 
-  filter(
-    macronutriente == "total",
-    exp_tag != "caja_control"
-  ) %>% 
+  filter(exp_tag != "caja_control") %>% 
   ggplot(aes(
     session,
     percent_of_daily_intake_total_group,
-    ymin = percent_of_daily_intake_total_group - err,
-    ymax = percent_of_daily_intake_total_group + err,
     color = type_of_food
   )) +
   geom_point() +
   geom_line() +
-  geom_errorbar() +
-  facet_wrap(~exp_tag)
+  geom_errorbar(aes(
+    ymin = percent_of_daily_intake_total_group - err,
+    ymax = percent_of_daily_intake_total_group + err
+    )) +
+   geom_point(
+     inherit.aes = FALSE,
+    data = caf_chow_kcal_daily_ind %>% 
+      filter(macronutriente == "total", exp_tag != "caja_control"),
+    aes(
+      session,
+      percent_of_daily_intake_total,
+      color = type_of_food
+    ), alpha = 0.3
+  ) +
+  geom_label_repel(
+    inherit.aes = FALSE,
+    data = caf_chow_kcal_daily_ind %>% 
+      filter(macronutriente == "total", exp_tag != "caja_control"),
+    aes(
+      session,
+      percent_of_daily_intake_total,
+      color = type_of_food,
+      label = ID
+    ), size = 2
+  ) +
+  facet_wrap(~exp_tag) +
+  theme_pubr()
 ```
