@@ -2,7 +2,9 @@
 title: "caf_diet"
 author: "Yanireth Jimenez"
 date: '2022-06-06'
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -31,6 +33,9 @@ chow_diet_intake_raw <- read_sheet("https://docs.google.com/spreadsheets/d/1Lhdj
 
 # cafeteria diet macronutrient information
 macronutrients_info <- read_sheet("https://docs.google.com/spreadsheets/u/1/d/1a7jy9vIBOiPlJYsKFF4vUyEtlqqNtbe9E5ALUA1d3l8/edit?usp=drive_web&ouid=104225426026972857358")
+
+# weights
+weights <- read_sheet("https://docs.google.com/spreadsheets/d/1OmcbGXrndiUeQcZvTu827imwuo2eFJEEOYs17NNugHw/edit#gid=993948139")
 ```
 
 # Data preproc
@@ -75,19 +80,19 @@ caja_control <- caf_diet_intake_raw %>%
     hour_out = hms::as_hms(hour_out),
     # criollitas
     criollitas_percent_diff = ((criollitas_out_gr + criollitas_sp_gr) - criollitas_in_gr) /
-      (((criollitas_in_gr) + (criollitas_out_gr + criollitas_sp_gr)) / 2),
+      criollitas_in_gr,
     # cheetos
     cheetos_percent_diff = ((cheetos_out_gr + cheetos_sp_gr) - cheetos_in_gr) /
-      (((cheetos_in_gr) + (cheetos_out_gr + cheetos_sp_gr)) / 2),
+      cheetos_in_gr,
     # trencito
     trencito_percent_diff = ((trencito_out_gr + trencito_sp_gr) - trencito_in_gr) /
-      (((trencito_in_gr) + (trencito_out_gr + trencito_sp_gr)) / 2),
+      trencito_in_gr,
     # papas
     papas_percent_diff = ((papas_out_gr + papas_sp_gr) - papas_in_gr) /
-      (((papas_in_gr) + (papas_out_gr + papas_sp_gr)) / 2),
+      papas_in_gr,
     # chow
     chow_percent_diff = ((chow_out_gr + chow_sp_gr) - chow_in_gr) /
-      (((chow_in_gr) + (chow_out_gr + chow_sp_gr)) / 2)
+      chow_in_gr
   ) %>% 
   select(ID:hour_out, criollitas_percent_diff:chow_percent_diff) %>% 
   pivot_longer(
@@ -173,7 +178,7 @@ chow_22_control <- chow_diet_intake_raw %>%
     hour_out = hms::as_hms(hour_out),
     # percent diff in control chow
     chow_22_percent_diff = ((chow_22_out_gr + chow_22_sp_gr) - chow_22_in_gr) /
-      (((chow_22_in_gr) + (chow_22_out_gr + chow_22_sp_gr)) / 2),
+      chow_22_in_gr,
   ) %>% 
   select(ID:hour_out, chow_22_percent_diff) %>% 
   pivot_longer(
@@ -376,6 +381,21 @@ macro_intake_gr <- caf_diet_intake_macros %>%
     mean_total_intake_gr = mean(total_intake_gr),
     err = sd(total_intake_gr) / sqrt(n())
   )
+
+# weight to consider change in weight relative to the start of 
+# caf diet intake
+weights_caf <- weights %>% 
+  # session >= 1 are CAF sessions
+  filter(session >= 1) %>% 
+  group_by(
+    ID
+  ) %>% 
+  # add group and difference in weight relative to the first session
+  mutate(
+    delta_weight = ((weight - weight[1]) / weight[1]) * 100,
+    group = if_else(ID %in% c(338, 340, 342), "caf", "control")
+  )
+
 ```
 
 
@@ -388,7 +408,7 @@ y axis = kcal or grams
 
 ```{r}
 # macro intake in kcal
-macro_intake_kcal_ind %>% 
+p1 <- macro_intake_kcal_ind %>% 
   mutate(ID = as.factor(ID)) %>% 
   filter(
     macronutriente == "total",
@@ -448,13 +468,14 @@ macro_intake_kcal_ind %>%
   theme_pubr() +
   labs(color = "Experimental condition") +
   ylab("Mean intake (kcal)") +
-  xlab("Sessions")
+  xlab("Sessions") +
+  scale_x_continuous(breaks = seq(1, max(macro_intake_kcal_ind$session), 1))
 ```
 
 ## 2 hours gr per food type
 ```{r}
 # macro intake in gr
-macro_intake_gr %>% 
+p2 <- macro_intake_gr %>% 
   filter(
     exp_tag != "caja_control"
   ) %>% 
@@ -482,19 +503,20 @@ macro_intake_gr %>%
 x axis = experimental sessions
 y axis = % of intake in kcal caf vs chow
 ```{r}
-caf_chow_kcal_daily_group %>% 
+p3 <- caf_chow_kcal_daily_group %>% 
   filter(exp_tag != "caja_control") %>% 
   ggplot(aes(
     session,
     percent_of_daily_intake_total_group,
     color = type_of_food
   )) +
+  geom_hline(yintercept = 50, color = "gray") +
   geom_point() +
   geom_line() +
   geom_errorbar(aes(
     ymin = percent_of_daily_intake_total_group - err,
     ymax = percent_of_daily_intake_total_group + err
-    )) +
+    ), width = 0.01) +
    geom_point(
      inherit.aes = FALSE,
     data = caf_chow_kcal_daily_ind %>% 
@@ -517,5 +539,48 @@ caf_chow_kcal_daily_group %>%
     ), size = 2
   ) +
   facet_wrap(~exp_tag) +
+  ylab("Mean percent of daily intake") +
+  scale_x_continuous(breaks = seq(1, max(caf_chow_kcal_daily_group$session), 1)) +
   theme_pubr()
 ```
+
+## weights
+```{r}
+# pick last labels
+w_labs <- weights_caf %>% group_by(ID) %>% filter(session == max(session))
+w1 <- weights_caf %>% 
+  ggplot(aes(
+    session,
+    delta_weight,
+    color = group,
+    group = ID
+  )) +
+  geom_point() +
+  geom_line() +
+  geom_label_repel(aes(label = ID), data = w_labs) +
+  geom_hline(yintercept = 0) +
+  theme_pubr()
+w2 <- weights_caf %>% 
+  ggplot(aes(
+    session,
+    weight,
+    color = group,
+    group = ID
+  )) +
+  geom_point() +
+  geom_line() +
+  geom_label_repel(aes(label = ID), data = w_labs) +
+  theme_pubr()
+cowplot::plot_grid(w1, w2,
+                   labels = c('percent change', 'weight'),
+                   label_size = 12)
+```
+
+
+# save plots
+```{r}
+p1
+p2
+p3
+```
+
