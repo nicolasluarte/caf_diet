@@ -24,6 +24,9 @@ pacman::p_load(
 
 # Load data
 
+All relevant raw data is loaded here. read_sheet reads a csv file from 
+google drive. Note that the csv file should be a google sheets file not .xlsx
+
 ```{r}
 # 2h daily exposure to cafeteria diet
 caf_diet_intake_raw <- read_sheet("https://docs.google.com/spreadsheets/d/1yN0byHvCX7_lhpqhMryK8NE8271o19uOHm12PpkQFE0/edit#gid=96738361")
@@ -41,6 +44,13 @@ weights <- read_sheet("https://docs.google.com/spreadsheets/d/1OmcbGXrndiUeQcZvT
 # Data preproc
 
 ```{r}
+# fix variables data type
+caf_diet_intake_raw <- caf_diet_intake_raw %>% 
+  # set variables in gr as dbl
+  mutate_at(
+    vars(matches("gr")), as.numeric
+  )
+  
 # daily cafeteria dieta intake
 caf_diet_intake <- caf_diet_intake_raw %>% 
   # fix hour in and hour out format
@@ -168,7 +178,6 @@ chow_diet_intake <- chow_diet_intake_raw %>%
   ) %>% 
   mutate(food_name = "chow", time = "22_hr")
 
-# TODO correct by percent difference
 chow_22_control <- chow_diet_intake_raw %>% 
   filter(
     exp_tag == "caja_control"
