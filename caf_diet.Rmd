@@ -18,7 +18,9 @@ pacman::p_load(
   tidyverse,
   googlesheets4,
   ggpubr,
-  ggrepel
+  ggrepel,
+  lme4,
+  lmerTest
 )
 ```
 
@@ -290,6 +292,8 @@ caf_chow_kcal <- caf_diet_intake_macros %>%
   summarise(
     kcal_intake = sum(kcal_intake)
   )
+
+caf_chow_kcal$ID <- unlist(caf_chow_kcal$ID)
 
 # normal + chow consumed during cafeteria diet vs caf diet in % of daily intake kcal
 caf_chow_kcal_daily_ind <- caf_chow_kcal %>% 
@@ -569,6 +573,46 @@ w1 <- weights_caf %>%
   geom_label_repel(aes(label = ID), data = w_labs) +
   geom_hline(yintercept = 0) +
   theme_pubr()
+
+# group weight delta
+wm <- weights_caf %>% 
+  ungroup() %>% 
+  group_by(
+    group,
+    session
+  ) %>% 
+  summarise(
+    m = mean(delta_weight),
+    s = sd(delta_weight) / sqrt(n())
+  ) %>% 
+  ungroup()
+
+library(ggtext)
+std_colors <- c("#000000", "#56B4E9", "#E69F00")
+w1 <- wm %>% 
+  ggplot(aes(
+    session,
+    m,
+    ymin = m - s,
+    ymax = m + s,
+    group = group,
+    color = group
+  )) +
+  geom_line(key_glyph = draw_key_blank) +
+  geom_point(key_glyph = draw_key_blank) +
+  geom_errorbar(key_glyph = draw_key_blank) +
+  labs(colour = "") +
+  scale_color_manual(labels = paste("<span style='color:",
+                                   std_colors,
+                                   "'>",
+                                   c("Cafeteria", "Control"),
+                                   "</span>"),
+                    values = std_colors) +
+  theme(legend.key = element_blank(),
+        legend.text=element_markdown(size=12),
+        legend.key.size = unit(0,"line"))
+
+
 w2 <- weights_caf %>% 
   ggplot(aes(
     session,
@@ -591,5 +635,44 @@ cowplot::plot_grid(w1, w2,
 p1
 p2
 p3
+```
+
+# Statistical analysis
+
+```{r}
+data <- caf_chow_kcal %>% 
+  filter(
+    macronutriente == "total",
+    exp_tag != "caja_control"
+  ) %>% 
+  mutate(
+    food_cat = if_else(food_name == "chow", "chow", "caf")
+  ) %>% 
+  group_by(
+    ID,
+    session,
+    exp_tag,
+    food_cat
+  ) %>% 
+  summarise(
+    kcal_intake_cat = sum(kcal_intake)
+  ) %>% 
+  ungroup()
+
+mdl_intake <- lmer(
+  data = data,
+  kcal_intake_cat ~ exp_tag * food_cat + (1 | ID)
+)
+summary(mdl_intake)
+emm <- emmeans::emmeans(mdl_intake, pairwise ~ exp_tag * food_cat)
+
+# weight
+data_caf <- weights_caf
+mdl_weight <- lmer(
+  data = data_caf,
+  delta_weight ~ group * as.factor(session) + (1 | ID)
+)
+summary(mdl_weight)
+emm_weight <- emmeans::emmeans(mdl_weight, pairwise ~ group | session)
 ```
 
